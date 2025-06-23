@@ -26,7 +26,7 @@ class StabilityCheckerNode : public rclcpp::Node
             Model model;
             try 
             {
-                pinocchio::urdf::buildModel(urdf_file_path, model);
+                pinocchio::urdf::buildModel(urdf_file_path, pinocchio::JointModelFreeFlyer(), model);
                 RCLCPP_INFO(this->get_logger(), "Model built successfully with %d joints and %d frames.", model.njoints, model.nframes);
             } catch (const std::exception & e) 
             {
