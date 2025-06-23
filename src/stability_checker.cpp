@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "rclcpp/rclcpp.hpp"
+#include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/string.hpp"
 
 #include "pinocchio/algorithm/joint-configuration.hpp"
@@ -26,12 +27,26 @@ class StabilityCheckerNode : public rclcpp::Node
             try 
             {
                 pinocchio::urdf::buildModel(urdf_file_path, model);
-                Data data(model);
+                RCLCPP_INFO(this->get_logger(), "Model built successfully with %d joints and %d frames.", model.njoints, model.nframes);
             } catch (const std::exception & e) 
             {
                 RCLCPP_ERROR(this->get_logger(), "Failed to build model from URDF: %s", e.what());
                 return;
             }
+
+            Data data(model);
+
+            joint_state_subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
+                "/joint_states", 10, std::bind(&StabilityCheckerNode::joint_state_callback, this, std::placeholders::_1)
+            );
+        }
+
+    private:
+        rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscription_;
+
+        void joint_state_callback(const sensor_msgs::msg::JointState)
+        {
+            RCLCPP_INFO(this->get_logger(), "Received joint state message. Attempting to compute stability...");
         }
 };
 
