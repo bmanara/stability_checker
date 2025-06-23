@@ -1,6 +1,7 @@
 #include <iostream>
 
 #include "rclcpp/rclcpp.hpp"
+#include "geometry_msgs/msg/point_stamped.hpp"
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/string.hpp"
 
@@ -39,6 +40,10 @@ class StabilityCheckerNode : public rclcpp::Node
             joint_state_subscription_ = this->create_subscription<sensor_msgs::msg::JointState>(
                 "/joint_states", 10, std::bind(&StabilityCheckerNode::joint_state_callback, this, std::placeholders::_1)
             );
+
+            com_publisher_ = this->create_publisher<geometry_msgs::msg::PointStamped>(
+                "/robot_com", 10
+            );
         }
 
     private:
@@ -46,11 +51,10 @@ class StabilityCheckerNode : public rclcpp::Node
         pinocchio::Data data; // Data object for computations
 
         rclcpp::Subscription<sensor_msgs::msg::JointState>::SharedPtr joint_state_subscription_;
+        rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr com_publisher_;
 
         void joint_state_callback(const sensor_msgs::msg::JointState::SharedPtr msg)
         {
-            RCLCPP_INFO(this->get_logger(), "Received joint state message. Attempting to compute stability...");
-
             // Create a configuration vector from the joint state message
             Eigen::VectorXd q = pinocchio::neutral(model);
             for (size_t i = 0; i < msg->name.size(); ++i) {
@@ -68,9 +72,15 @@ class StabilityCheckerNode : public rclcpp::Node
             pinocchio::centerOfMass(model, data, q);
             const Eigen::Vector3d& com_position = data.com[0];
 
-            RCLCPP_INFO(this->get_logger(), "Center of Mass Position: [%.3f, %.3f, %.3f]", 
-                        com_position.x(), com_position.y(), com_position.z());
-                    
+            // Publish result as PointStamped message
+            auto com_msg = geometry_msgs::msg::PointStamped(); 
+            com_msg.header.stamp = this->get_clock()->now();
+            com_msg.header.frame_id = "base_link"; // Assuming base_link is the reference frame
+            com_msg.point.x = com_position.x();
+            com_msg.point.y = com_position.y();
+            com_msg.point.z = com_position.z();
+
+            com_publisher_->publish(com_msg);
         }
 };
 int main(int argc, char **argv)
