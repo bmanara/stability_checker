@@ -11,6 +11,7 @@ find_package(rclcpp REQUIRED)
 find_package(sensor_msgs REQUIRED)
 find_package(geometry_msgs REQUIRED)
 find_package(nav_msgs REQUIRED)
+find_package(visualization_msgs REQUIRED)
 find_package(pinocchio REQUIRED)
 find_package(Eigen3 REQUIRED)
 find_package(message_filters REQUIRED)
@@ -39,6 +40,7 @@ ament_target_dependencies(stability_checker
   sensor_msgs
   geometry_msgs
   nav_msgs
+  visualization_msgs
   Eigen3
   pinocchio
   message_filters

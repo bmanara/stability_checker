@@ -5,6 +5,7 @@
 #include "sensor_msgs/msg/joint_state.hpp"
 #include "std_msgs/msg/string.hpp"
 #include "nav_msgs/msg/odometry.hpp"
+#include "visualization_msgs/msg/marker.hpp"
 
 #include "pinocchio/algorithm/center-of-mass.hpp"
 #include "pinocchio/algorithm/joint-configuration.hpp"
@@ -47,11 +48,12 @@ class StabilityCheckerNode : public rclcpp::Node
             data = pinocchio::Data(model);
 
             joint_state_subscription.subscribe(this, "joint_states", qos.get_rmw_qos_profile());
-            odometry_subscription.subscribe(this, "odom", qos.get_rmw_qos_profile());
+            odometry_subscription.subscribe(this, "diff_drive_controller/odom", qos.get_rmw_qos_profile());
 
             joint_state_publisher_ = this->create_publisher<sensor_msgs::msg::JointState>("joint_states_out", qos);
             odometry_publisher_ = this->create_publisher<nav_msgs::msg::Odometry>("odom_out", qos);
             com_publisher_ = this->create_publisher<geometry_msgs::msg::PointStamped>("robot_com", qos);
+            stability_marker_publisher_ = this->create_publisher<visualization_msgs::msg::Marker>("stability_marker", qos);
 
             timer_ = this->create_wall_timer(1000ms, std::bind(&StabilityCheckerNode::TimerCallback, this));
 
@@ -71,6 +73,7 @@ class StabilityCheckerNode : public rclcpp::Node
         rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr joint_state_publisher_;
         rclcpp::Publisher<nav_msgs::msg::Odometry>::SharedPtr odometry_publisher_;
         rclcpp::Publisher<geometry_msgs::msg::PointStamped>::SharedPtr com_publisher_;
+        rclcpp::Publisher<visualization_msgs::msg::Marker>::SharedPtr stability_marker_publisher_;
 
         std::shared_ptr<message_filters::TimeSynchronizer<sensor_msgs::msg::JointState, nav_msgs::msg::Odometry>> sync_;
         rclcpp::TimerBase::SharedPtr timer_;
@@ -78,8 +81,6 @@ class StabilityCheckerNode : public rclcpp::Node
         void SyncCallback(const sensor_msgs::msg::JointState::ConstSharedPtr joint_state_msg,
                           const nav_msgs::msg::Odometry::ConstSharedPtr odometry_msg)
         {
-            RCLCPP_INFO(this->get_logger(), "Received synchronized messages with %u and %u as times.", joint_state_msg->header.stamp.sec, odometry_msg->header.stamp.sec);
-
             // Create a configuration vector from the joint state message
             Eigen::VectorXd q = pinocchio::neutral(model);
             for (size_t i = 0; i < joint_state_msg->name.size(); ++i) {
@@ -105,7 +106,58 @@ class StabilityCheckerNode : public rclcpp::Node
             com_msg.point.y = com_position.y();
             com_msg.point.z = com_position.z();
 
-            com_publisher_->publish(com_msg);
+            publish_stability_markers(com_msg.point);
+
+            // TODO: Compute Zero Moment Point (ZMP) for dynamic stability checking
+        }
+
+        void publish_stability_markers(const geometry_msgs::msg::Point& local_com)
+        {
+            auto com_marker = visualization_msgs::msg::Marker();
+            com_marker.header.frame_id = "base_link";
+            com_marker.header.stamp = this->get_clock()->now();
+            com_marker.ns = "stability_checker";
+            com_marker.id = 0;
+            com_marker.type = visualization_msgs::msg::Marker::SPHERE;
+            com_marker.action = visualization_msgs::msg::Marker::ADD;
+            com_marker.pose.position = local_com;
+            com_marker.scale.x = 0.1;
+            com_marker.scale.y = 0.1;
+            com_marker.scale.z = 0.1;
+            com_marker.color.a = 0.9;
+            com_marker.color.r = 1.0;
+            com_marker.color.g = 0.8;
+            com_marker.color.b = 0.0; // Yellow color
+            com_marker.lifetime = rclcpp::Duration::from_seconds(1.0);
+            com_marker.pose.orientation.w = 1.0; // No rotation
+
+            stability_marker_publisher_->publish(com_marker);
+
+            auto support_polygon_marker = visualization_msgs::msg::Marker();
+            support_polygon_marker.header.frame_id = "base_link";
+            support_polygon_marker.header.stamp = this->get_clock()->now();
+            support_polygon_marker.ns = "stability_checker";
+            support_polygon_marker.id = 1;
+            support_polygon_marker.type = visualization_msgs::msg::Marker::LINE_STRIP;
+            support_polygon_marker.action = visualization_msgs::msg::Marker::ADD;
+            support_polygon_marker.scale.x = 0.02; // Line width
+            support_polygon_marker.color.a = 0.8;
+            support_polygon_marker.color.r = 0.0;
+            support_polygon_marker.color.g = 1.0; // Green color
+            support_polygon_marker.color.b = 0.0; // Green color
+
+            geometry_msgs::msg::Point p1, p2, p3, p4, p5, p6, p7, p8;
+            p1.x = 0.525; p1.y = 0.345; p1.z = 0.0;
+            p2.x = 0.525; p2.y = -0.345; p2.z = 0.0;
+            p3.x = -0.625; p3.y = -0.345; p3.z = 0.0;
+            p4.x = -0.625; p4.y = 0.345; p4.z = 0.0;
+            p5.x = 0.525; p5.y = 0.345; p5.z = 0.8;
+            p6.x = 0.525; p6.y = -0.345; p6.z = 0.8;
+            p7.x = -0.625; p7.y = -0.345; p7.z = 0.8;
+            p8.x = -0.625; p8.y = 0.345; p8.z = 0.8;
+            support_polygon_marker.points = {p1, p2, p3, p4, p1, p5, p6, p2, p6, p7, p3, p7, p8, p4, p8, p5};
+
+            stability_marker_publisher_->publish(support_polygon_marker);
         }
 
         void TimerCallback()
